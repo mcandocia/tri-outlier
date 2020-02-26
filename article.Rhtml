@@ -1,0 +1,365 @@
+<script type="text/javascript" id="MathJax-script" async
+  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js">
+</script>
+
+<!--begin.rcode setup, echo=FALSE,warning=FALSE,message=FALSE
+
+#options(bitmapType = 'cairo', device = 'png')
+#knitr::opts_chunk$set(echo = TRUE, dev="CairoPNG")
+
+library(tidyverse)
+library(readr)
+library(dplyr)
+library(reshape2)
+library(ggplot2)
+library(scales)
+library(cetcolor)
+library(stringr)
+library(GGally)
+library(ape)
+source('gen_model.r')
+
+# FUNCTIONS
+
+parse_split_time <- function(x){
+  elements = strsplit(x, ':')
+  seconds = unlist(lapply(elements, function(x) sum( as.numeric(x) * rev(60^(1:length(x) - 1)))))
+  return(seconds)
+}
+
+format_time <- function(x){
+  hours = x %/% 3600
+  x = x %% 3600
+  minutes = x %/% 60
+  x = x %% 60
+  seconds = x
+  return(
+    case_when(
+      hours > 0 ~ paste(hours, str_pad(minutes, 2, pad='0'), str_pad(seconds, 2, pad='0'), sep=':'),
+      minutes > 0 ~ paste(minutes, str_pad(seconds, 2, pad='0'), sep=':'),
+      TRUE ~ as.character(seconds)
+    )
+    
+  )
+}
+
+# READ DATA AND SET BASIC RANKINGS
+
+df = read_csv('Export.csv', col_types=cols(.default='c')) %>%
+  mutate(
+    is_me = ifelse(Name=='Max Candocia', 'me', 'not me'),
+    athlete = case_when(Name=='Max Candocia'~'Me', Name=='#firstlast' ~ '#first', Name=='#firstlast'~'#first', 
+                        TRUE ~ 'Other')
+  ) %>%
+  mutate_at(
+    c('Run','Swim','Bike','T1','T2','Time'),
+    parse_split_time
+  ) %>%
+  mutate_at(
+    c('Run','Swim','Bike','T1','T2','Time'),
+    list(rank=~rank(.))
+  )
+
+# PAIRWISE PLOTS SETUP
+pair_plot <- function(data, v1, v2,...){
+  data = data %>% mutate(Pos=as.numeric(Pos))
+  ggplot(data) + 
+    geom_point(aes_string(x=v1,y=v2,fill='Pos',color='is_me', ...), shape=21) + 
+    scale_x_continuous(labels=format_time) + 
+    scale_y_continuous(labels=format_time) +
+    scale_color_manual('Is Me?', values=c('me'='#FF0000','not me'='#000000')) + 
+    scale_fill_gradientn('Place',colors=rev(cet_pal(7, 'inferno')))
+}
+
+pair_plot_rank <- function(data, v1, v2,...){
+  data = data %>% mutate(Pos=as.numeric(Pos))
+  ggplot(data) + 
+    geom_point(aes_string(x=v1,y=v2,fill='Pos',color='is_me', ...), shape=21) + 
+    scale_color_manual('Is Me?', values=c('me'='#FF0000','not me'='#000000')) + 
+    scale_fill_gradientn('Place',colors=rev(cet_pal(7, 'inferno')))
+}
+
+dens_plot <- function(data, v, ...){
+  ggplot(data) + geom_density(aes_string(x=v,...)) +
+    scale_x_continuous(labels=format_time) + 
+    geom_vline(color='red', xintercept=data %>% filter(is_me=='me') %>% pull(!!v))
+}
+
+dens_plot_rank <- function(data, v, ...){
+  ggplot(data) + geom_density(aes_string(x=v,...)) +
+    geom_vline(color='red', xintercept=data %>% filter(is_me=='me') %>% pull(!!v))
+}
+
+p_rr = dens_plot(df, 'Run')
+p_bb = dens_plot(df, 'Bike')
+p_ss = dens_plot(df, 'Swim')
+
+p_sr = pair_plot(df, 'Swim','Run')
+p_sb = pair_plot(df, 'Swim','Bike')
+p_br = pair_plot(df, 'Bike','Run')
+
+pr_rr = dens_plot_rank(df, 'Run_rank')
+pr_bb = dens_plot_rank(df, 'Bike_rank')
+pr_ss = dens_plot_rank(df, 'Swim_rank')
+
+pr_sr = pair_plot_rank(df, 'Swim_rank','Run_rank')
+pr_sb = pair_plot_rank(df, 'Swim_rank','Bike_rank')
+pr_br = pair_plot_rank(df, 'Bike_rank','Run_rank')
+
+p0 = ggplot() + geom_blank() + theme_void()
+
+plot_list = list(p_ss, p0, p0, p_sb, p_bb, p0, p_sr, p_br, p_rr)
+
+rank_plot_list = list(pr_ss, p0, p0, pr_sb, pr_bb, p0, pr_sr, pr_br, pr_rr)
+
+# MAHALANOBIS SETUP
+center = colMeans(df[,c('Swim','Bike','Run')])
+center_rank = colMeans(df[,c('Swim_rank','Bike_rank','Run_rank')])
+
+sigma2 = var(df[,c('Swim','Bike','Run')])
+sigma2_rank = var(df[,c('Swim_rank','Bike_rank','Run_rank')])
+
+df$mahalanobis_distance = mahalanobis(df[,c('Swim','Bike','Run')], center, sigma2)
+df$mahalanobis_distance_rank = mahalanobis(df[,c('Swim_rank','Bike_rank','Run_rank')], center_rank, sigma2_rank)
+
+df$euclidean_distance = mahalanobis(df[,c('Swim','Bike','Run')], center, sigma2 * diag(3))
+df$euclidean_distance_rank = mahalanobis(df[,c('Swim_rank','Bike_rank','Run_rank')], center_rank, sigma2_rank * diag(3))
+
+df = df %>% 
+  mutate(
+    mahalanobis_ranking = rank(-mahalanobis_distance),
+    mahalanobis_rank_ranking = rank(-mahalanobis_distance_rank),
+    euclidean_ranking = rank(-euclidean_distance),
+    euclidean_rank_ranking = rank(-euclidean_distance_rank)
+  )
+
+df_mahalanobis = df %>%
+  select(
+    mahalanobis_ranking,
+    mahalanobis_distance,
+    Swim_rank,
+    Run_rank,
+    Bike_rank,
+    Pos
+  ) %>%
+  melt(id.vars=c('mahalanobis_ranking','mahalanobis_distance'))
+
+df_mahalanobis_rank = df %>%
+  select(
+    mahalanobis_rank_ranking,
+    mahalanobis_distance_rank,
+    Swim_rank,
+    Run_rank,
+    Bike_rank,
+    Pos
+  ) %>%
+  melt(id.vars=c('mahalanobis_rank_ranking','mahalanobis_distance_rank'))
+
+
+# CLUSTERING
+distmat = dist(df %>% select(Swim, Bike, Run))
+clusters = hclust(distmat, method='ward.D2')
+trees = cutree(clusters, 5)
+
+#cet_pal(9, 'bkr')
+
+#plot(as.phylo(clusters))
+
+df$cluster= trees
+
+ranked_distmat = dist(df %>% select(Swim_rank, Bike_rank, Run_rank))
+ranked_clusters = hclust(ranked_distmat, method='ward.D2')
+ranked_trees = cutree(ranked_clusters, 5)
+
+df$ranked_cluster= ranked_trees
+
+#https://stackoverflow.com/a/18749392/1362215
+map2color<-function(x,pal,limits=NULL){
+  if(is.null(limits)) limits=range(x)
+  pal[findInterval(x,seq(limits[1],limits[2],length.out=length(pal)+1), all.inside=TRUE)]
+}
+
+tip_colors = map2color(as.numeric(df$Pos),rev(cet_pal(200,'bkr')))
+
+theme_bigger = theme(axis.text=element_text(size=rel(1.8)),
+                                   axis.title=element_text(size=rel(2)),
+                                   plot.title=element_text(size=rel(2)),
+                                   plot.subtitle=element_text(size=rel(2)),
+                                   legend.title=element_text(size=rel(1.8)),
+                                   legend.text=element_text(size=rel(1.3)),
+                     strip.text=element_text(size=rel(1.8)))
+
+end.rcode-->
+
+<p> Last fall I competed in my first triathlon, <a href="https://www.trisignup.com/Race/IL/Champaign/TriTheIllini" id="tritheillini_out" target="_blank">Tri the Illini</a>, a sprint triathlon at the University of Illinois at Urbana Champaign. The race consisted of a 300m swim in a pool, a 14-mile bike ride, and a 5k run, each with a short transition zone between each.</p>
+
+<p> Naturally, I was confident I would do well at the running portion as I run 5-6 times a week, and I had been training a few weeks prior for the biking, which I was alright at. However, I had not swum in ages, and it was never really my strong point. Needless to say, I did pretty bad in the swimming portion. Out of 424 athletes, I finished 410th in swimming, 142nd in biking, and 10th in running. Here are a couple plots, one of time, and another of ranking, to show where I was in the data.</p>
+
+
+<!--begin.rcode pairwise_time, echo=FALSE, warning=FALSE, message=FALSE, fig.height=12, fig.width=12
+print(
+ggmatrix(plot_list, ncol=3,nrow=3, xAxisLabels=c('Swim','Bike','Run'), 
+         yAxisLabels=c('Swim','Bike','Run'), legend=4, title='Tri the Illini 2019 Event Times') + theme_bigger + 
+  theme(axis.text = element_text(size=rel(1.1)))
+)
+end.rcode-->
+
+<!--begin.rcode pairwise_time_rank, echo=FALSE, warning=FALSE, message=FALSE, fig.height=12, fig.width=12
+
+ggmatrix(rank_plot_list, ncol=3, nrow=3, xAxisLabels=c('Swim','Bike','Run'), 
+         yAxisLabels=c('Swim','Bike','Run'), legend=4, title='Tri the Illini 2019 Event Rankings') + theme_bigger + 
+  theme(axis.text = element_text(size=rel(1.1)))
+
+end.rcode-->
+
+<p> I wouldn't normally discuss a single race on this blog about analytics, but it is a good example of how to identify outliers in numeric data, and what might constitute an outlier. </p>
+
+<h1> Outliers </h1>
+
+<p> An outlier is generally a data point that looks like it doesn't belong to a group of data, whether it's a slice of a dataset, or the entire dataset itself. In some cases, it may belong to the data set, but it is not part of the data that we want to analyze or model. For example, if we want to look at the effect of a drug on a population, if most of the population is 40-50 years old, and there is a very small amount that is 80-90, the latter age group may not be considered, as they would have to be treated completely differently than a much younger group. </p>
+
+<p>In other cases, our goal may be to identify anomalies, such as fraudulent behavior, individuals who don't belong to a group, and forged/falsified records.</p>
+
+<p> In my case, we'll take a look under what considerations different methods of outlier identification can be used. </p>
+
+<h2> Removing Extrema </h2>
+
+<p> A very simple way of dealing with outliers is by removing data with values that are well outside the normal range (usually the top/bottom few percent or less). We <i>might</i> remove the fastest and slowest athletes if we were, for example, trying to determine the effect of a sports drink on performance. In that case, the purpose of identifying the outliers is to remove them because they would skew the model, mostly because of how long-tailed/sparse data can be at both ends (especially the slow end). If there's not enough data or a more complex model is not allowed, removing outliers <i> may </i> be appropriate. </p>
+
+<h2> Ranking Variation (Heuristic) </h2>
+
+<p> A simple way of identifying an outlier is making a simple rule, a heuristic, based on intuition that should identify more extreme characteristics. For the triathlon, each athlete who completed has a ranking for each event (as well as the transitions, which we will ignore for now). Generally, you would imagine that someone who is a triathlete would be well-balanced and train roughly equally among each event, while someone who is not would have wildly varying rankings (or just very poor rankings overall). </p>
+
+<p> For this test, I simply calculate the standard deviation of the rankings for each athlete, and sort them in order. </p>
+
+<!--begin.rcode variation_test, echo=FALSE,message=FALSE,warning=FALSE,fig.width=12,fig.height=12
+
+vdf = df %>% group_by(Name) %>% summarize(variation = sqrt(2/3) * sd(c(Swim_rank, Run_rank, Bike_rank)), Pos=as.numeric(Pos)) %>% 
+  ungroup() %>%
+  arrange(desc(variation)) %>%
+  mutate(rank=1:n()) 
+  )
+
+ggplot(vdf %>% mutate(is_me=ifelse(Name=='Max Candocia','Me','Other')) )+
+  geom_point(aes(x=rank, y=variation, color=is_me, fill=Pos), alpha=0.9, shape=21, size=3) + 
+  theme_bw() + 
+  ylab('Deviation among Run, Bike, and Swim rankings') +
+  scale_color_manual('Is Me', values=c('Me'='#FF0000','Other'='#000000')) + 
+  scale_fill_gradientn('Place',colors=cet_pal(7,'inferno')) + 
+  ggtitle('Variation in Triathlon Event Rankings', subtitle='2019 Tri the Illini')  + theme_bigger
+
+end.rcode-->
+
+<p> According to this metric, the standard deviation was a bit over 160 which is much higher than anyone else. Interestingly, the slop of the line around the top 50 seems to steepen, and the top 6 break away from the rest of the graph. Looking at the top 6, one other athlete and I were good at running, not as good with bike, and much worse at swimming. There were a couple swimmers who did pretty poorly on the bike, and one runner who did much worse on both other events.</p>
+
+<p> In this case, identifying outliers identified individuals who obviously were most likely not training for all 3 events equally, and more likely just one event primarily. The least outlier-like were those who were at the top overall and those who were at the bottom overall. </p>
+
+<h2> Mahalonobis Distance </h2>
+
+<p> Mahalanobis distance is a metric that measures the distance of points from the center of a cluster, adjusting for the variation and correlations within the cluster. For example, if we had three variables, age, net worth, and income of an individual, we would expect those to be all correlated positively. An old rich man with a high income might be an outlier in one sense since all 3 of those values are away from the average age/wealth/income, but a young rich person with low  income would be even more anomalous, since without time to accumulate wealth or the apparent income required for it, it would seem extraordinary (and one would guess from an inheritance/trust fund). </p>
+
+<p> The exact transformation is simply multiplying the vector of centered data by the inverse covariance matrix, then multiplying the centered vector again.</p>
+
+<p> $$\sqrt{(\vec{x}-\vec{\mu})\Sigma^{-1}(\vec{x}-\vec{\mu})}$$ </p>
+
+<h3> Mahalanobis Distance of Time </h3>
+
+<p> Looking at the Mahalanobis distance of times, I come in at #8 for highest distance. What is unusual, though, is that of the top 10, I am the only one not further back overall. My overall performance is somewhat average, but it is the individual times and their opposite-direction variation that impacts it. The slowest two individuals are at the top, which makes sense from an "outlier" perspective.</p>
+<!--begin.rcode mahalanobis, echo=FALSE,message=FALSE,warning=FALSE,fig.height=8,fig.width=8
+ggplot(df) + 
+  geom_point(aes(x=mahalanobis_ranking, y = mahalanobis_distance, color=is_me)) + 
+  scale_color_manual('Is Me?', values=c('me'='red','not me'='black')) + 
+  xlab('Ranking') + ylab('Mahalanobis Distance') + 
+  ggtitle('Mahalanobis distances of Tri the Illini 2019 athlete\'s swim, bike, and run times') + 
+  theme_bw()  + theme_bigger
+end.rcode-->
+
+<h3> Mahalanobis Distance of Ranking </h3>
+
+<p> Looking at the Mahalanobis distances of rankings, the distribution of athletes is more varied, as the long-tailed nature of event times is not captured here. Since the rank variables are constrained and do not have any lopsidedness, the distance here more or less represents "outside of the norm" for event ranking correlations, rather than the event rankings themselves. </p> 
+
+<!--begin.rcode mahalanobis_rank, echo=FALSE,message=FALSE,warning=FALSE,fig.height=8,fig.width=8
+ggplot(df) + 
+  geom_point(aes(x=mahalanobis_rank_ranking, y = mahalanobis_distance_rank, color=is_me)) + 
+  scale_color_manual('Is Me?', values=c('me'='red','not me'='black')) + 
+  xlab('Ranking') + ylab('Mahalanobis Distance') + 
+  ggtitle('Mahalanobis distances of Tri the Illini 2019 athlete\'s swim, bike, and run rankings') + 
+  theme_bw()  + theme_bigger
+end.rcode-->
+
+<p> If you don't take correlations into account, all of the "outliers" are the slowest and fastest people. It is quite normal to have both slow and fast people in a race, so most of them. To better visualize the respective event and overall rankings of the individuals and their Mahalanobis distances, here are a couple plots that demonstrate the trends: </p>
+
+
+<!--begin.rcode mahalanobis_colorful, echo=FALSE, warning=FALSE, message=FALSE, fig.height=12, fig.width=12
+ggplot(df_mahalanobis %>% mutate(variable = gsub('_rank',' Rank', variable), value=as.numeric(value)) %>%
+         mutate(variable = factor(variable, levels=c('Swim Rank','Bike Rank','Run Rank','Overall Rank')))) + 
+  geom_point(aes(x=mahalanobis_ranking, y=mahalanobis_distance, color=value), size=5, pch='|') +
+  facet_grid(variable~.) + 
+  scale_color_gradientn('Ranking', colors=rev(cet_pal(7, 'inferno'))) + 
+  xlab('Ranking') + ylab('Mahalanobis Distance') + 
+  ggtitle('Mahalanobis distance rankings of run, bike, and swim times of \nTri the Illini 2019 athletes ',
+  subtitle='colored by event/overall rankings')  + theme_bigger
+end.rcode-->
+
+
+<!--begin.rcode mahalanobis_rank_colorful, echo=FALSE, warning=FALSE, message=FALSE, fig.height=12, fig.width=12
+ggplot(df_mahalanobis_rank %>% mutate(variable = gsub('_rank',' Rank', variable), value=as.numeric(value)) %>%
+         mutate(variable = factor(variable, levels=c('Swim Rank','Bike Rank','Run Rank','Overall Rank')))) + 
+  geom_point(aes(x=mahalanobis_rank_ranking, y=mahalanobis_distance_rank, color=value), size=5, pch='|') +
+  facet_grid(variable~.) + 
+  scale_color_gradientn('Ranking', colors=rev(cet_pal(7, 'inferno'))) + 
+  xlab('Ranking') + ylab('Mahalanobis Distance') + 
+  ggtitle('Mahalanobis distance rankings of run, bike, and swim rankings of ]\nTri the Illini 2019 athletes',
+  subtitle='colored by event/overall rankings')  + theme_bigger
+end.rcode-->
+
+  
+<p> While using the raw times tends to produce outliers mostly from the long-tailed end of the slower times, the ranking of times tends to produce more individuals who do well in some events, and more poorly in others. Interestingly, <b>most of these "outlier" athletes perform relatively average overall</b>. This is another good way to detect athletes who have noticeable strengths and weaknesses that average each other out.</p>
+
+<h2> Clustering </h2>
+
+<p> One final approach that I will use is clustering, where individuals are placed into a fixed number of groups based on their characteristics, and "outliers" may be either a group that is quite separate from all the others, or possibly just individuals who do not fit particularly close to any given group. </p>
+
+<p> Below are dendrograms of the Tri the Illini athletes, where each marker on the right indicates an athlete, and the length of the branches extending from them indicates how "far away" they are from their closest neighbors. Groups of athletes that are joined together in this tree tend to have average times similar to each other. Red markers were fastest overall, blue the slowest, and black/darker colors somewhere in between. I've highlighted myself with a semi-transparent marker.</p>
+
+
+
+<!--begin.rcode unranked_clusters,warning=FALSE,message=FALSE,echo=FALSE,fig.height=12,fig.width=12
+plot(as.phylo(clusters),show.tip.label=FALSE, main='Clusters of Tri the Illini 2019 athletes by swim, bike, and run times')
+tiplabels(rep('---',424), col=tip_colors, frame='none', pos=4, offset=-0.25)
+tiplabels(c(rep('',125),'--o',rep('', 298)), cex=2, frame='none', pos=4, offset=-0.25, col='#333333AA')
+end.rcode-->
+
+<p> <i>Note: I've scaled the swim, bike, and run times when performing distance calculations </i> </p>
+
+<!--begin.rcode ranked_clusters,warning=FALSE,message=FALSE,echo=FALSE,fig.height=12,fig.width=12
+plot(as.phylo(ranked_clusters),show.tip.label=FALSE, main='Clusters of Tri the Illini 2019 athletes by swim, bike, and run ranks')
+tiplabels(rep('---',424), col=tip_colors, frame='none', pos=4, offset=-30.0)
+tiplabels(c(rep('',125),'--o',rep('', 298)), cex=2, frame='none', pos=4, offset=-30.0, col='#333333AA')
+end.rcode-->
+
+<p> One way to create clusters with the dendrograms is to imagine a vertical line cutting off all the branches to the left, leaving unconnected branches on the right in their own clusters. For the dendrogram based on time, it is easy to see 3 or 4 clusters, depending on whether or not the bottom area with the blue markers contains one or two. The one based on ranks can be 3 or 4, but it's easier to make the case for 4 here rather than 3 if determining a more general cluster.</p>
+
+<p> However, if we want to identify outliers, we would look at the nodes that have the steepest height, or very small groups that have a very steep height when connecting to any other groups. The bottom dozen or so could definitely be considered an outlier group. I've manually marked a few individuals/small groups that stood out using this technique. </p>
+
+<p> As a final remark, clustering to detect outliers will produce drastically different results depending on what technique/algorithm you use, and the sample size can greatly affect the interpretation, as well. The above was an agglomerative hierarchical clustering technique, but there are many others that can be used.</p>
+
+<h1> Summary </h1>
+
+<p> There are a few different methods of identifying outliers that have been outlined: </p>
+
+<ol>
+ <li> Extreme values (time and rank): Slowest and fastest athletes are "outliers" </li>
+ <li> Heuristic (rank): variation among highly correlated values: most inconsistent athletes are "outliers" </li>
+ <li> Mahalanobis distance from center (both time and rank): slow, fast, and inconsistent athletes are "outliers" </li>
+ <li> Hierarchical clustering (time): very slow athletes and inconsistent athletes are "outliers" </li>
+ <li> Hierarchical clustering (rank):  inconsistent athletes are "outliers" </li>
+</ol>
+ 
+ <p> Of course, the above only really holds true for this data, and possibly other triathlon data, but it should give you an idea of some basic techniques to try when looking at numeric data. For other sorts of data, such as collections of text or other models with a large number of variables, you will likely be more worried about sample size and weird combinations that give certain data points too much influence over some variables. See my article <a href="https://maxcandocia.com/article/2017/Oct/18/when-leverage-overshadows-regularization/" id="maxcandocia_leverage_overshadows_regularization_out" target="_blank">When Leverage Overshadows Regularization</a>, where I describe outliers in a model-oriented context. </p>
+ 
+ <p> Lastly: I really need to work on my swimming...</p>
+ 
+ <h1> Github Code </h1>
+ 
+ <p> Code used for this project/article is hosted here: <a href="https://github.com/mcandocia/tri-outlier" target="_blank" id="github_tri_outlier_out">https://github.com/mcandocia/tri-outlier</a></p>
