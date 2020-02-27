@@ -17,7 +17,7 @@ library(cetcolor)
 library(stringr)
 library(GGally)
 library(ape)
-source('gen_model.r')
+#source('gen_model.r')
 
 # FUNCTIONS
 
@@ -196,7 +196,7 @@ end.rcode-->
 <p> Naturally, I was confident I would do well at the running portion as I run 5-6 times a week, and I had been training a few weeks prior for the biking, which I was alright at. However, I had not swum in ages, and it was never really my strong point. Needless to say, I did pretty bad in the swimming portion. Out of 424 athletes, I finished 410th in swimming, 142nd in biking, and 10th in running. Here are a couple plots, one of time, and another of ranking, to show where I was in the data.</p>
 
 
-<!--begin.rcode pairwise_time, echo=FALSE, warning=FALSE, message=FALSE, fig.height=12, fig.width=12
+<!--begin.rcode pairwise_time, echo=FALSE, warning=FALSE, message=FALSE, fig.height=10.5, fig.width=10.5
 print(
 ggmatrix(plot_list, ncol=3,nrow=3, xAxisLabels=c('Swim','Bike','Run'), 
          yAxisLabels=c('Swim','Bike','Run'), legend=4, title='Tri the Illini 2019 Event Times') + theme_bigger + 
@@ -204,7 +204,7 @@ ggmatrix(plot_list, ncol=3,nrow=3, xAxisLabels=c('Swim','Bike','Run'),
 )
 end.rcode-->
 
-<!--begin.rcode pairwise_time_rank, echo=FALSE, warning=FALSE, message=FALSE, fig.height=12, fig.width=12
+<!--begin.rcode pairwise_time_rank, echo=FALSE, warning=FALSE, message=FALSE, fig.height=10.5, fig.width=10.5
 
 ggmatrix(rank_plot_list, ncol=3, nrow=3, xAxisLabels=c('Swim','Bike','Run'), 
          yAxisLabels=c('Swim','Bike','Run'), legend=4, title='Tri the Illini 2019 Event Rankings') + theme_bigger + 
@@ -232,13 +232,13 @@ end.rcode-->
 
 <p> For this test, I simply calculate the standard deviation of the rankings for each athlete, and sort them in order. </p>
 
-<!--begin.rcode variation_test, echo=FALSE,message=FALSE,warning=FALSE,fig.width=12,fig.height=12
+<!--begin.rcode variation_test, echo=FALSE,message=FALSE,warning=FALSE,fig.width=10.5,fig.height=10.5
 
 vdf = df %>% group_by(Name) %>% summarize(variation = sqrt(2/3) * sd(c(Swim_rank, Run_rank, Bike_rank)), Pos=as.numeric(Pos)) %>% 
   ungroup() %>%
   arrange(desc(variation)) %>%
   mutate(rank=1:n()) 
-  )
+  
 
 ggplot(vdf %>% mutate(is_me=ifelse(Name=='Max Candocia','Me','Other')) )+
   geom_point(aes(x=rank, y=variation, color=is_me, fill=Pos), alpha=0.9, shape=21, size=3) + 
@@ -270,7 +270,7 @@ ggplot(df) +
   geom_point(aes(x=mahalanobis_ranking, y = mahalanobis_distance, color=is_me)) + 
   scale_color_manual('Is Me?', values=c('me'='red','not me'='black')) + 
   xlab('Ranking') + ylab('Mahalanobis Distance') + 
-  ggtitle('Mahalanobis distances of Tri the Illini 2019 athlete\'s swim, bike, and run times') + 
+  ggtitle('Mahalanobis distances of Tri the Illini 2019 athlete\'s \nswim, bike, and run times') + 
   theme_bw()  + theme_bigger
 end.rcode-->
 
@@ -283,14 +283,14 @@ ggplot(df) +
   geom_point(aes(x=mahalanobis_rank_ranking, y = mahalanobis_distance_rank, color=is_me)) + 
   scale_color_manual('Is Me?', values=c('me'='red','not me'='black')) + 
   xlab('Ranking') + ylab('Mahalanobis Distance') + 
-  ggtitle('Mahalanobis distances of Tri the Illini 2019 athlete\'s swim, bike, and run rankings') + 
+  ggtitle('Mahalanobis distances of Tri the Illini 2019 athlete\'s \nswim, bike, and run rankings') + 
   theme_bw()  + theme_bigger
 end.rcode-->
 
 <p> If you don't take correlations into account, all of the "outliers" are the slowest and fastest people. It is quite normal to have both slow and fast people in a race, so most of them. To better visualize the respective event and overall rankings of the individuals and their Mahalanobis distances, here are a couple plots that demonstrate the trends: </p>
 
 
-<!--begin.rcode mahalanobis_colorful, echo=FALSE, warning=FALSE, message=FALSE, fig.height=12, fig.width=12
+<!--begin.rcode mahalanobis_colorful, echo=FALSE, warning=FALSE, message=FALSE, fig.height=10.5, fig.width=10.5
 ggplot(df_mahalanobis %>% mutate(variable = gsub('_rank',' Rank', variable), value=as.numeric(value)) %>%
          mutate(variable = factor(variable, levels=c('Swim Rank','Bike Rank','Run Rank','Overall Rank')))) + 
   geom_point(aes(x=mahalanobis_ranking, y=mahalanobis_distance, color=value), size=5, pch='|') +
@@ -302,14 +302,14 @@ ggplot(df_mahalanobis %>% mutate(variable = gsub('_rank',' Rank', variable), val
 end.rcode-->
 
 
-<!--begin.rcode mahalanobis_rank_colorful, echo=FALSE, warning=FALSE, message=FALSE, fig.height=12, fig.width=12
+<!--begin.rcode mahalanobis_rank_colorful, echo=FALSE, warning=FALSE, message=FALSE, fig.height=10.5, fig.width=10.5
 ggplot(df_mahalanobis_rank %>% mutate(variable = gsub('_rank',' Rank', variable), value=as.numeric(value)) %>%
          mutate(variable = factor(variable, levels=c('Swim Rank','Bike Rank','Run Rank','Overall Rank')))) + 
   geom_point(aes(x=mahalanobis_rank_ranking, y=mahalanobis_distance_rank, color=value), size=5, pch='|') +
   facet_grid(variable~.) + 
   scale_color_gradientn('Ranking', colors=rev(cet_pal(7, 'inferno'))) + 
   xlab('Ranking') + ylab('Mahalanobis Distance') + 
-  ggtitle('Mahalanobis distance rankings of run, bike, and swim rankings of ]\nTri the Illini 2019 athletes',
+  ggtitle('Mahalanobis distance rankings of run, bike, and swim rankings of \nTri the Illini 2019 athletes',
   subtitle='colored by event/overall rankings')  + theme_bigger
 end.rcode-->
 
@@ -324,7 +324,7 @@ end.rcode-->
 
 
 
-<!--begin.rcode unranked_clusters,warning=FALSE,message=FALSE,echo=FALSE,fig.height=12,fig.width=12
+<!--begin.rcode unranked_clusters,warning=FALSE,message=FALSE,echo=FALSE,fig.height=12.5,fig.width=10.5
 plot(as.phylo(clusters),show.tip.label=FALSE, main='Clusters of Tri the Illini 2019 athletes by swim, bike, and run times')
 tiplabels(rep('---',424), col=tip_colors, frame='none', pos=4, offset=-0.25)
 tiplabels(c(rep('',125),'--o',rep('', 298)), cex=2, frame='none', pos=4, offset=-0.25, col='#333333AA')
@@ -332,10 +332,10 @@ end.rcode-->
 
 <p> <i>Note: I've scaled the swim, bike, and run times when performing distance calculations </i> </p>
 
-<!--begin.rcode ranked_clusters,warning=FALSE,message=FALSE,echo=FALSE,fig.height=12,fig.width=12
+<!--begin.rcode ranked_clusters,warning=FALSE,message=FALSE,echo=FALSE,fig.height=12.5,fig.width=10.5
 plot(as.phylo(ranked_clusters),show.tip.label=FALSE, main='Clusters of Tri the Illini 2019 athletes by swim, bike, and run ranks')
-tiplabels(rep('---',424), col=tip_colors, frame='none', pos=4, offset=-30.0)
-tiplabels(c(rep('',125),'--o',rep('', 298)), cex=2, frame='none', pos=4, offset=-30.0, col='#333333AA')
+tiplabels(rep('---',424), col=tip_colors, frame='none', pos=4, offset=-0.1)
+tiplabels(c(rep('',125),'--o',rep('', 298)), cex=2, frame='none', pos=4, offset=-0.0, col='#333333AA')
 end.rcode-->
 
 <p> One way to create clusters with the dendrograms is to imagine a vertical line cutting off all the branches to the left, leaving unconnected branches on the right in their own clusters. For the dendrogram based on time, it is easy to see 3 or 4 clusters, depending on whether or not the bottom area with the blue markers contains one or two. The one based on ranks can be 3 or 4, but it's easier to make the case for 4 here rather than 3 if determining a more general cluster.</p>
